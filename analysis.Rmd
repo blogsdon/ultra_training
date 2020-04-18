@@ -1,0 +1,102 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Read in data
+
+```{r}
+foo <- data.table::fread('data/fitness_freshness.csv',data.table=F)
+
+foo$Date <- as.Date(foo$Date,format="%m/%d/%y")
+foo$diffFitness <- c(NA,diff(foo$Fitness))
+foo$diffFatigue <- c(NA,diff(foo$Fatigue))
+```
+
+
+plots
+
+```{r}
+
+g <- ggplot2::ggplot(foo,ggplot2::aes(Date,Fitness))
+g <- g+ggplot2::geom_smooth()
+g <- g+ggplot2::geom_point()
+g
+
+g <- ggplot2::ggplot(foo,ggplot2::aes((Impulse),(diffFitness)))
+g <- g+ggplot2::geom_point()
+g
+
+g <- ggplot2::ggplot(foo,ggplot2::aes(Date,diffFitness))
+#g <- g+ggplot2::geom_smooth()
+g <- g+ggplot2::geom_point()
+g
+
+g <- ggplot2::ggplot(foo,ggplot2::aes(Date,log10(Impulse)))
+#g <- g+ggplot2::geom_smooth()
+g <- g+ggplot2::geom_point()
+g
+g <- ggplot2::ggplot(foo,ggplot2::aes((Impulse),(diffFatigue)))
+g <- g+ggplot2::geom_point()
+g
+
+g <- ggplot2::ggplot(foo,ggplot2::aes(Date,Fatigue))
+g <- g+ggplot2::geom_smooth()
+g <- g+ggplot2::geom_point()
+g
+
+g <- ggplot2::ggplot(foo,ggplot2::aes(Date,Form))
+g <- g+ggplot2::geom_smooth()
+g <- g+ggplot2::geom_point()
+g
+
+foo2 <- dplyr::filter(foo,Impulse==0)
+
+g <- ggplot2::ggplot(foo2,ggplot2::aes(Fitness,diffFitness))
+g <- g+ ggplot2::geom_point()
+g
+
+g <- ggplot2::ggplot(foo2,ggplot2::aes(Fitness,diffFatigue))
+g <- g+ ggplot2::geom_point()
+g
+
+
+```
+
+
+
+```{r}
+
+
+
+new_fitness_freshness <- function(x,y,z){
+  transitionKernel <- rbind(c(-.21,.979,0,0.02),c(1.51,-0.19,1,.139))
+  return(transitionKernel%*%(c(1,x,y,z)))
+}
+
+run_three_months <- function(xinit,yinit,impulse){
+  res <- list()
+  res$fitness <- c()
+  res$fatigue <- c()
+  x <- new_fitness_freshness(xinit,yinit,0)
+  for (i in 1:26){
+    for(j in 1:14){
+      x <- new_fitness_freshness(x[1],x[2],impulse[j])
+      res$fitness <- c(res$fitness,x[1])
+      res$fatigue <- c(res$fatigue,x[2])
+    }
+  }
+  return(res)
+}
+
+res_simple <- run_three_months(63,53,rep(62.90541,14))
+
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
