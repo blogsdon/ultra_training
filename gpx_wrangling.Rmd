@@ -1,0 +1,125 @@
+---
+title: "Load gpx"
+output: html_notebook
+---
+
+Process gpx file.
+
+```{r}
+read_gpx_file <- function(filename){
+  tmt2 <- xml2::read_xml(filename)
+  tmt2b<-xml2::as_list(tmt2)
+  #lat/lon/elev/time
+  lat <- sapply(tmt2b$gpx$trk$trkseg,attr,'lat')
+  lon <- sapply(tmt2b$gpx$trk$trkseg,attr,'lon')
+  elev <- sapply(tmt2b$gpx$trk$trkseg,function(x) as.numeric(x$ele[[1]]))
+  time <- sapply(tmt2b$gpx$trk$trkseg,function(x) as.character(x$time[[1]]))
+  
+  #hr/cad/temp/power
+  hr <- sapply(tmt2b$gpx$trk$trkseg,
+               function(x) as.numeric(x$extensions$TrackPointExtension$hr[[1]][[1]]))
+  cad <- sapply(tmt2b$gpx$trk$trkseg,
+                function(x) as.numeric(x$extensions$TrackPointExtension$cad[[1]][[1]]))
+  temp <- sapply(tmt2b$gpx$trk$trkseg,
+                 function(x) as.numeric(x$extensions$TrackPointExtension$atemp[[1]][[1]]))
+  power <- sapply(tmt2b$gpx$trk$trkseg,
+                  function(x) as.numeric(x$extensions$power[[1]]))
+
+  #missingness
+  fxn1 <- function(x){
+    vec1 <- sapply(x,length)==0
+    n1 <- sum(vec1)
+    if(n1>0){
+      x[vec1] <- NA
+      x <- sapply(x, function(x) x)
+      return(x)
+    } else {
+      return(x)
+    }
+  }
+  hr <- fxn1(hr)
+  cad <- fxn1(cad)
+  temp <- fxn1(temp)
+  power <- fxn1(power)
+  df <- data.frame(time=time,
+                   latitude=as.numeric(lat),
+                   longitude=as.numeric(lon),
+                   elevation=elev,
+                   hr=hr,
+                   cad=cad,
+                   temp=temp,
+                   power=power,
+                   stringsAsFactors = F)
+  
+  cat('computing smoothed distances\n')
+  secs <- nrow(df)
+  geo_dist <- geosphere::distVincentyEllipsoid(cbind(df$longitude[-secs],
+                                                     df$latitude[-secs]),
+                                               cbind(df$longitude[-1],
+                                                     df$latitude[-1]))
+  geo_dist <- c(0,smooth::sma(geo_dist)$fitted)
+  elev_dist <- df$elevation[-1]-df$elevation[-secs]
+  elev_dist <- c(0,smooth::sma(elev_dist)$fitted)
+  df$dist <- sqrt(geo_dist^2+elev_dist^2)
+  df$geo_dist <- geo_dist
+  df$ascent <- rep(0,secs)
+  df$descent <- rep(0,secs)
+  df$ascent[elev_dist>0] <- elev_dist[elev_dist>0]
+  df$descent[elev_dist<0] <- elev_dist[elev_dist<0]
+  df$time <- sapply(df$time,lubridate::as_datetime,tz='America/Los_Angeles')
+  df$elapsedtime <- c(0,df$time[-1]-df$time[-secs])
+  df$speed <- c(0,(df$elapsedtime[-1]/df$dist[-1])*26.8224)
+  df$speed <- smooth::sma(df$speed)$fitted
+  return(df)
+}
+
+```
+
+play around with some data
+```{r message=FALSE}
+fun_run <- read_gpx_file('data/gpx_tracks/Fun_run.gpx')
+fun_run_imp <- bcv::impute.svd(fun_run)$x
+colnames(fun_run_imp) <- colnames(fun_run)
+
+fun_run_imp <- fun_run_imp[fun_run_imp[,'cad']>0,]
+umap_res<-umap::umap((fun_run_imp[,c('elevation',
+                                     'hr',
+                                     'cad',
+                                     'temp',
+                                     'power',
+                                     'speed')]))
+
+umapDf <- data.frame(dim1=umap_res$layout[,1],
+                     dim2=umap_res$layout[,2],
+                     stringsAsFactors = F)
+umapDf <- cbind(umapDf,fun_run[fun_run$cad>0,])
+umapDf <- data.frame(umapDf,stringsAsFactors = F)
+
+ab<-kmeans(umapDf[,c('dim1','dim2')],10,nstart=1000)
+umapDf$cluster <- as.factor(ab$cluster)
+g <- ggplot2::ggplot(umapDf,
+                     ggplot2::aes(dim1,
+                                  dim2,
+                                  color=cluster,
+                                  alpha=elevation))
+
+g <- g+ggplot2::geom_point()
+g
+
+h <- ggplot2::ggplot(umapDf,
+                     ggplot2::aes(longitude,
+                                  latitude,
+                                  color=cluster))
+
+h <- h+ggplot2::geom_jitter()
+h
+```
+
+ideas to follow up on
+
+1. fix speed given pause in data recording
+2. fix time formatting - done
+3. run umap on data to see if there are interesting patterns
+4. extract features (mean, variance, sd, skew, kurtosis...???)
+5. figure out efficient way to download all of gpx files going back to deception pass 50k, and set up a function to process all of them to make unified data-set
+6. 

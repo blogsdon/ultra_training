@@ -1,0 +1,581 @@
+---
+title: "Ultra sandbox code chunks"
+output: html_notebook
+---
+
+load data first
+
+
+Load data and convert date
+
+```{r}
+foo <- data.table::fread('data/ultra_training.csv')
+foo$Date <- as.Date(foo$Date,tryFormats=c("%m/%d/%y"))
+```
+
+Create beats per mile and beats per grade adjusted mile stats
+
+```{r}
+foo$bpgam <- foo$GAP*foo$HR
+foo$bpmile <- foo$Pace*foo$HR
+```
+
+Create a numeric Date variable starting at the commencement of serious training (April 9, 2019), as well as a rest days variabe.
+
+```{r}
+foo$DateNew <- as.numeric(foo$Date)-min(as.numeric(foo$Date))
+foo$restDays <- c(8,diff(foo$DateNew))
+```
+
+
+gganimate!
+```{r}
+# g <- g+ gganimate::transition_time(Date)
+# g <- g+ ggplot2::labs(title="Date: {frame_time}")
+# g <- g+ gganimate::shadow_mark(alpha = 0.5, size = 1)
+# g <- g+ gganimate::ease_aes('linear',interval=0.001)
+# g
+# f<-gganimate::animate(g,duration=120)
+```
+
+
+
+predictive modeling noodling
+```{r}
+dM <- dplyr::select(foo,
+                    DateNew,
+                    Vert,
+                    Distance,
+                    Cadence,
+                    Elevation,
+                    Effort,
+                    Track,
+                    HR,
+                    restDays,
+                    MaxHR,
+                    AirTemp,
+                    Humidity,
+                    WindSpeed,
+                    Poles)
+dM$Distance <- log10(dM$Distance)
+dM$Elevation <- log10(dM$Elevation)
+dM$Effort <- log10(dM$Effort)
+dM$AirTemp <- log10(dM$AirTemp)
+dM$Humidity <- log10(dM$Humidity)
+dM$WindSpeed <- log10(dM$WindSpeed)
+dM <- dM[!is.na(dM$AirTemp),]
+foo2 <- foo[!is.na(foo$AirTemp),]
+dM1 <- model.matrix(~ .^2,dM)
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#dM1 <- scale(dM1)
+#dM1 <- scale(dM1)
+y <- foo2$Pace
+set.seed(9)
+res4<-spike::vbsrBootstrap(y=scale(y),x=scale(dM1),nsamp = 100)
+
+
+
+dM2 <- dM1%*%diag(res4[-1])
+colnames(dM2) <- colnames(dM1)
+dM2 <- dM2[,apply(dM2,2,sd)>0]
+
+spike_boot<-(lm(y~dM2))
+spike_boot_beta<- summary(spike_boot)$coef[,1]
+
+
+# glm_res<-glmnet::cv.glmnet(x=(dM1),y=scale(y),nfolds = nrow(foo),lambda=exp(seq(-16,1,length.out=100)),alpha=0)
+# beta1 <- glm_res$glmnet.fit$beta[,glm_res$lambda==glm_res$lambda.1se]
+# beta1[beta1!=0]
+# beta2 <- glm_res$glmnet.fit$beta[,glm_res$lambda==glm_res$lambda.min]
+# beta2[beta2!=0]
+# glm_res$cvm[glm_res$lambda==glm_res$lambda.1se]
+# glm_res$cvm[glm_res$lambda==glm_res$lambda.min]
+# plot(glm_res)
+
+```
+```{r}
+mod44<-(lm(Pace ~ Cadence +
+           HR +
+           log10(Effort)+
+           Vert+
+           Vert*log10(AirTemp)+
+           DateNew*Vert+
+           Cadence*HR+
+           Cadence*log10(Distance)+
+           log10(Distance)*HR+
+           DateNew*Track+
+           Vert*log10(Distance)+
+           Vert*log10(Effort)+
+           Vert*MaxHR+
+           Vert*Cadence -
+           DateNew-
+           log10(AirTemp)-
+           Track-
+           log10(Distance)-
+           MaxHR,foo1))
+summary(mod44)
+```
+
+```{r}
+mod44<-(lm(Pace ~ Vert +
+           Cadence +
+           DateNew*Vert+
+           Vert*log10(Elevation)-
+           DateNew-
+           log10(Elevation),foo1))
+summary(mod44)
+```
+
+
+old pace prediction code: Build a couple pace prediction models (model1 -> interaction, no effort, model2 -> interaction with effort, model3 -> no interaction, no effort, model4 -> no interaction, with effort)
+```{r}
+pace <- list()
+foo1 <- foo
+pace$interactionNoEffort<-(lm(Pace ~ DateNew +
+           (HR) +
+           Vert+
+           log10(Distance)+
+           (Cadence)+
+           log10(Elevation) +
+           Vert*log10(Distance) +
+           HR*Cadence+
+           Cadence*Vert +
+           Track + 
+           restDays + 
+           MaxHR +
+           log10(Humidity)+
+           log10(AirTemp)+
+           log10(Humidity)*log10(AirTemp),foo1))
+
+pace$interactionEffort <-(lm(Pace ~ DateNew +
+           (HR) +
+           Vert+
+           log10(Distance)+
+           (Cadence)+
+           log10(Elevation) +
+           Vert*log10(Distance) +
+           HR*Cadence+
+           Cadence*Vert +
+           Track + 
+           restDays +
+           log10(Effort)+
+           MaxHR +
+           log10(Humidity)+
+           log10(AirTemp)+
+           log10(Humidity)*log10(AirTemp),foo1))
+
+pace$noInteractionNoEffort <-(lm(Pace ~ DateNew +
+           (HR) +
+           Vert+
+           log10(Distance)+
+           (Cadence)+
+           log10(Elevation) +
+           Track + 
+           restDays+
+           MaxHR +
+           log10(Humidity)+
+           log10(AirTemp)+
+           log10(Humidity)*log10(AirTemp),foo1))
+
+pace$noInteractionEffort <-(lm(Pace ~ DateNew +
+            (HR) +
+            Vert +
+            log10(Distance)+
+            (Cadence)+
+            log10(Elevation) +
+            Track + 
+            restDays + 
+            log10(Effort) +
+            MaxHR +
+            log10(Humidity)+
+            log10(AirTemp)+
+            log10(Humidity)*log10(AirTemp),foo1))
+```
+
+```{r}
+pace2 <- list()
+foo1 <- foo
+pace2$interactionNoEffort<-(lm(Pace ~ DateNew +
+           (HR) +
+           Vert+
+           log10(Distance)+
+           (Cadence)+
+           log10(Elevation) +
+           Vert*log10(Distance) +
+           HR*Cadence+
+           Cadence*Vert +
+           Track + 
+           restDays,foo1))
+
+pace2$interactionEffort <-(lm(Pace ~ DateNew +
+           (HR) +
+           Vert+
+           log10(Distance)+
+           (Cadence)+
+           log10(Elevation) +
+           Vert*log10(Distance) +
+           HR*Cadence+
+           Cadence*Vert +
+           Track + 
+           restDays +
+           log10(Effort),foo1))
+
+pace2$noInteractionNoEffort <-(lm(Pace ~ DateNew +
+           (HR) +
+           Vert+
+           log10(Distance)+
+           (Cadence)+
+           log10(Elevation) +
+           Track + 
+           restDays,foo1))
+
+pace2$noInteractionEffort <-(lm(Pace ~ DateNew +
+            (HR) +
+            Vert +
+            log10(Distance)+
+            (Cadence)+
+            log10(Elevation) +
+            Track + 
+            restDays + 
+            log10(Effort),foo1))
+```
+
+
+Marathon prediction
+```{r}
+today <- foo1$DateNew[nrow(foo1)]
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(171,4)),
+       Distance=as.list(rep(26.2,4)),
+       Cadence=as.list(rep(180,4)),
+       Vert=as.list(rep(1,4)),
+       Elevation=as.list(rep(100,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,350,NULL,350))*(26.2/60)
+```
+
+Mile prediction
+```{r}
+today <- foo1$DateNew[nrow(foo1)]
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(183,4)),
+       Distance=as.list(rep(1,4)),
+       Cadence=as.list(rep(195,4)),
+       Vert=as.list(rep(1,4)),
+       Elevation=as.list(rep(100,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,20,NULL,20))
+```
+
+1/2 Marathon prediction
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(178,4)),
+       Distance=as.list(rep(13.1,4)),
+       Cadence=as.list(rep(182,4)),
+       Vert=as.list(rep(1,4)),
+       Elevation=as.list(rep(100,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,200,NULL,200))*(13.1)
+```
+
+
+5k prediction
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(185,4)),
+       Distance=as.list(rep(3.1,4)),
+       Cadence=as.list(rep(186,4)),
+       Vert=as.list(rep(1,4)),
+       Elevation=as.list(rep(100,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,67,NULL,67))*(3.1)
+```
+
+
+10k prediction
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(184,4)),
+       Distance=as.list(rep(6.2,4)),
+       Cadence=as.list(rep(184,4)),
+       Vert=as.list(rep(1,4)),
+       Elevation=as.list(rep(100,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,130,NULL,130))*(6.2)
+```
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(183,4)),
+       Distance=as.list(rep(6.3,4)),
+       Cadence=as.list(rep(185,4)),
+       Vert=as.list(rep(180,4)),
+       Elevation=as.list(rep(100,4)),
+       restDays=as.list(rep(2,4)),
+       Effort=list(NULL,140,NULL,140))*(6.3)
+```
+
+Thunder cougar falcon bird classic prediction
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(165,4)),
+       Distance=as.list(rep(14.33,4)),
+       Cadence=as.list(rep(170,4)),
+       Vert=as.list(rep(4785,4)),
+       Elevation=as.list(rep(400,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,200,NULL,200))*(14.33/60)
+```
+Rattlesnake two-fer prediction
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(165,4)),
+       Distance=as.list(rep(19.35,4)),
+       Cadence=as.list(rep(171,4)),
+       Vert=as.list(rep(5489,4)),
+       Elevation=as.list(rep(1000,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,362,NULL,362))*(19.35/60)
+```
+
+Yakima 25k
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(165,4)),
+       Distance=as.list(rep(15.36,4)),
+       Cadence=as.list(rep(161,4)),
+       Vert=as.list(rep(5157,4)),
+       Elevation=as.list(rep(1000,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,200,NULL,200))*(15.36/60)
+```
+
+squak-octogon
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(147,4)),
+       Distance=as.list(rep(28.11,4)),
+       Cadence=as.list(rep(172,4)),
+       Vert=as.list(rep(9501,4)),
+       Elevation=as.list(rep(500,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,390,NULL,390))*(28.11/60)
+```
+
+Orcas
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(183,4)),
+       Distance=as.list(rep(15.5,4)),
+       Cadence=as.list(rep(168,4)),
+       Vert=as.list(rep(4500,4)),
+       Elevation=as.list(rep(100,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,596,NULL,596))*(15.5/60)
+```
+
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(155,4)),
+       Distance=as.list(rep(50,4)),
+       Cadence=as.list(rep(172,4)),
+       Vert=as.list(rep(8200,4)),
+       Elevation=as.list(rep(1700,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,400,NULL,400))*(50/60)
+```
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(154,4)),
+       Distance=as.list(rep(62.1,4)),
+       Cadence=as.list(rep(174,4)),
+       Vert=as.list(rep(5190,4)),
+       Elevation=as.list(rep(3000,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,500,NULL,500))*(62.1/60)
+```
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(195,4)),
+       Distance=as.list(rep(1,4)),
+       Cadence=as.list(rep(186,4)),
+       Vert=as.list(rep(1,4)),
+       Elevation=as.list(rep(100,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,30,NULL,30))
+```
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(161,4)),
+       Distance=as.list(rep(30.96,4)),
+       Cadence=as.list(rep(178,4)),
+       Vert=as.list(rep(5049,4)),
+       Elevation=as.list(rep(3500,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,300,NULL,300))*(30.96/60)
+```
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today+30,4)),
+       HR=as.list(rep(155,4)),
+       Distance=as.list(rep(51.8,4)),
+       Cadence=as.list(rep(172,4)),
+       Vert=as.list(rep(1600,4)),
+       Elevation=as.list(rep(300,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,350,NULL,350))*(51.8/60)
+```
+
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(156,4)),
+       Distance=as.list(rep(6.09,4)),
+       Cadence=as.list(rep(180,4)),
+       Vert=as.list(rep(735,4)),
+       Elevation=as.list(rep(300,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,70,NULL,70))*(6.09/60)
+```
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(178,4)),
+       Distance=as.list(rep(9.53,4)),
+       Cadence=as.list(rep(178,4)),
+       Vert=as.list(rep(3238,4)),
+       Elevation=as.list(rep(600,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,250,NULL,250))*(9.53/60)
+```
+
+```{r}
+mapply(pacePredictor,
+       modFit=pace,
+       DateNew=as.list(rep(today,4)),
+       HR=as.list(rep(179,4)),
+       Distance=as.list(rep(9.61,4)),
+       Cadence=as.list(rep(175,4)),
+       Vert=as.list(rep(3202,4)),
+       Elevation=as.list(rep(1100,4)),
+       restDays=as.list(rep(1,4)),
+       Effort=list(NULL,264,NULL,264))*(9.61/60)
+```
+
+
+compute some cumulative efforts
+
+```{r}
+fxn2 <- function(day,df){
+  searchDays <- day - c(1:21)
+  ab <- dplyr::filter(df,Date%in%searchDays)
+  if(nrow(ab)>0){
+    return(sum(ab$Distance))
+  }else{
+    return(0)
+  }
+}
+
+foo$cumulativeDistance <- sapply(foo$Date,fxn2,foo)
+modelx <- lm(bpmile ~ Vert + 
+               log10(Distance) + 
+               Cadence +
+               log10(Elevation) + 
+               Vert*log10(Distance) + 
+               Cadence*Vert + 
+               Track + 
+               DateNew +
+               restDays + 
+               MaxHR + 
+               log10(cumulativeDistance+1),foo)
+summary(modelx)
+```
+
+
+
+```{r}
+foo2 <- foo
+foo2$Distance <- log10(foo2$Distance)
+foo2$Effort <- log10(foo2$Effort)
+foo2$Humidity <- log10(foo2$Humidity)
+foo2$AirTemp <- log10(foo2$AirTemp)
+foo2$Elevation <- log10(foo2$Elevation)
+foo2 <- foo2[!is.na(foo2$AirTemp),]
+foobar <- randomForest::randomForest(Pace ~ DateNew +
+           (HR) +
+           Vert+
+           (Distance)+
+           (Cadence)+
+           Elevation+
+           Track + 
+           (Effort)+
+           MaxHR +
+           Poles + 
+           (Humidity) +
+           (AirTemp) + 
+           restDays,
+           foo2)
+bench2$restDays<-1
+ab<-predict(foobar,bench2)
+names(ab) <- benchmark_data[,1]
+ab
+randomForest::varImpPlot(foobar)
+x1 <- dplyr::select(foo2, DateNew,
+                    HR,
+                    Vert,
+                    Distance,
+                    Cadence,
+                    Elevation,
+                    Track,
+                    Effort,
+                    MaxHR,
+                    Poles,
+                    Humidity,
+                    AirTemp,
+                    restDays)
+ab2 <- spike::vbsrBootstrap(y=foo2$Pace,x=x1)
+```

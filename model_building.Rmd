@@ -1,0 +1,81 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+load and transform data
+
+```{r}
+foo <- data.table::fread('data/ultra_training.csv')
+foo$Date <- as.Date(foo$Date,tryFormats=c("%m/%d/%y"))
+foo$bpgam <- foo$GAP*foo$HR
+foo$bpmile <- foo$Pace*foo$HR
+foo$DateNew <- as.numeric(foo$Date)-min(as.numeric(foo$Date))
+foo$restDays <- c(8,diff(foo$DateNew))
+```
+
+plot difference in air temperature and suunto temperature
+```{r}
+g <- ggplot2::ggplot(foo,ggplot2::aes(x=AirTemp,y=Temp))
+g <- g + ggplot2::geom_smooth()
+
+g <- g + ggplot2::geom_point()
+
+g
+```
+```{r}
+model3 <- lm(bpmile ~ Vert + 
+               log10(Distance) + 
+               Cadence +
+               log10(Elevation) + 
+               Vert*log10(Distance) + 
+               Cadence*Vert + 
+               Track + 
+               log10(Effort) + 
+               DateNew +
+               restDays + 
+               MaxHR,foo)
+summary(model3)
+foo$residEffort <- scale(model3$residuals)
+```
+
+
+plot resid v.s. temperature
+
+
+```{r}
+model3 <- lm(bpmile ~ log10(Effort) + 
+               Vert + 
+               DateNew + 
+               Cadence + 
+               log10(AirTemp) + 
+               log10(Humidity) + 
+               log10(AirTemp)*log10(Humidity),foo)
+summary(model3)
+```
+
+simple model for predicting pace
+
+```{r}
+x <- dplyr::select(foo,Distance,HR,Vert,DateNew,Effort,Cadence,Elevation,Track,MaxHR,AirTemp,Humidity,WindSpeed)
+x$Elevation <- log10(x$Elevation)
+x$Effort <- log10(x$Effort)
+x$Distance <- log10(x$Distance)
+x$AirTemp <- log10(x$AirTemp)
+x$Humidity <- log10(x$Humidity)
+x$vertdist <- x$Vert*x$Distance
+x$cadencevert <- x$Cadence*x$Vert
+x$temphumid <- x$AirTemp*x$Humidity
+x$WindSpeed <- log10(x$WindSpeed)
+y <- foo$Pace[!is.na(x$AirTemp)]
+x <- x[!is.na(x$AirTemp),]
+x <- scale(x)
+
+
+set.seed(1)
+resV <- spike::vbsrBootstrap(y=y,x=x,nsamp=100)
+barplot(resV,las=2)
+```
+
+
+
