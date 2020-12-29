@@ -8,18 +8,17 @@ Load data and convert date
 ```{r}
 foo <- data.table::fread('data/ultra_training.csv')
 foo$Date <- as.Date(foo$Date,tryFormats=c("%m/%d/%y"))
+foo <- foo[!is.na(foo$AirTemp),]
 ```
-
-
-
-
 
 Create a numeric Date variable starting at the commencement of serious training (April 9, 2019), as well as a rest days variabe.
 
 ```{r}
 foo$DateNew <- as.numeric(foo$Date)-min(as.numeric(foo$Date))
-foo$restDays <- c(8,diff(foo$DateNew))
-foo$restDays2 <- log10(foo$restDays+1)
+foo$restDays <- c(7,diff(foo$DateNew))
+foo$restDays2 <- foo$restDays
+foo$restDays2[foo$restDays>6] <- 7
+foo$restDays2 <- as.factor(foo$restDays2)
 ```
 
 
@@ -49,23 +48,25 @@ foo$bpmile <- foo$Pace*foo$HR
 Fit model without effort or DateNew to see progression.
 
 ```{r}
-model1 <- lm(log10(bpmile) ~ Vert +
-               log10(Distance) +
-               Cadence+log10(Elevation) + 
-               Vert*log10(Distance) + 
-               Cadence*Vert + 
-               Track + 
-               restDays2 +
-               MaxHR + 
-               Poles,foo)
-foo$resid <- scale(model1$residuals)
+model1 <- lme4::lmer(log10(bpmile) ~ Vert +
+                       log10(Distance) + 
+                       Cadence +
+                       Vert*log10(Distance) + 
+                       Cadence*Vert +
+                       Track +
+                       MaxHR +
+                       Humidity +
+                       AirTemp +
+                       Humidity*AirTemp +
+                       (1|WindDirection)+
+                       (1|weather),foo)
+
+foo$resid <- scale(residuals(model1))
 g <- ggplot2::ggplot(foo,ggplot2::aes(x=Date,y=resid))
 
 g <- g + ggplot2::geom_smooth(method=MASS::rlm)
 
 g <- g + ggplot2::geom_point()
-
-#g <- g+ ggplot2::ylim(-1,1)
 
 g
 ```
@@ -73,11 +74,11 @@ g
 Look at beats per grade adjusted mile
 
 ```{r}
-summary(MASS::rlm(log10(bpgam) ~ DateNew,foo))
+summary(MASS::rlm((bpgam) ~ DateNew,foo))
 g <- ggplot2::ggplot(foo,ggplot2::aes(x=Date,
                                       y=log10(bpgam)))
 
-g <- g + ggplot2::geom_smooth()
+g <- g + ggplot2::geom_smooth(method=MASS::rlm)
 
 g <- g + ggplot2::geom_point()
 
@@ -86,9 +87,9 @@ g
 
 Fit moving average to residuals
 ```{r}
-ma <- smooth::sma(model1$resid,ic = 'AICc')
+ma <- smooth::sma(residuals(model1),order=200)
 foo$fitted <- ma$fitted
-dd <- .3
+dd <- .16
 g <- ggplot2::ggplot(foo,ggplot2::aes(x=Date,y=0.80/exp(exp(fitted/dd)-exp(max(fitted)/dd))))
 g <- g+ ggplot2::geom_line()
 g <- g+ ggplot2::scale_x_date(date_breaks='45 weeks')
@@ -100,7 +101,7 @@ g
 
 g <- ggplot2::ggplot(foo,ggplot2::aes(x=Date,y=fitted))
 g <- g+ ggplot2::geom_line()
-g <- g+ ggplot2::scale_x_date(date_breaks='14 weeks')
+g <- g+ ggplot2::scale_x_date(date_breaks='30 weeks')
 g <- g + ggplot2::ylab('fitness')
 g
 
@@ -406,5 +407,28 @@ foo2$predPower <- pred1
 foo2$PowerPerStep <- foo2$predPower/foo2$Cadence
 foo2$PowerBerBeat <- log10(foo2$predPower) - log10(foo2$HR)
 ```
+
+```{r}
+set.seed(1)
+ns <- 2
+mod <- depmixS4::depmix(response = resid~1,
+                        data=foo,
+                        nstates=ns,
+                        trstart = runif(ns^2))
+fm <- depmixS4::fit(mod, 
+          emc=depmixS4::em.control(rand=FALSE))
+fm
+#for(i in 1:ns){
+#  print(i)
+#  print(c(fm@response[[i]][[1]]@parameters))
+  #plot(fm@posterior[[i]])
+#}
+```
+1672
+
+
+
+
+
 
 

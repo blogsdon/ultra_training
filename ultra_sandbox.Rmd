@@ -9,15 +9,8 @@ load data first
 Load data and convert date
 
 ```{r}
-foo <- data.table::fread('data/ultra_training.csv')
+foo <- data.table::fread('data/ultra_training.csv',data.table=F)
 foo$Date <- as.Date(foo$Date,tryFormats=c("%m/%d/%y"))
-```
-
-Create beats per mile and beats per grade adjusted mile stats
-
-```{r}
-foo$bpgam <- foo$GAP*foo$HR
-foo$bpmile <- foo$Pace*foo$HR
 ```
 
 Create a numeric Date variable starting at the commencement of serious training (April 9, 2019), as well as a rest days variabe.
@@ -25,6 +18,425 @@ Create a numeric Date variable starting at the commencement of serious training 
 ```{r}
 foo$DateNew <- as.numeric(foo$Date)-min(as.numeric(foo$Date))
 foo$restDays <- c(8,diff(foo$DateNew))
+foo$restDays2 <- log10(foo$restDays+1)
+```
+
+
+impute missing heart rate
+```{r}
+hr_mod <- lm(log10(HR)~log10(Distance)+
+               Pace+
+               GAP+
+               Vert+
+               Cadence+
+               Elevation+
+               Track+
+               Temp+
+               StartTime+
+               ElapsedTime+
+               DateNew+
+               restDays2,foo)
+hr_pred <- predict(hr_mod,foo)
+foo$HR[is.na(foo$HR)] <- 10^hr_pred[is.na(foo$HR)]
+summary(hr_mod)
+```
+
+impute missing effort
+```{r}
+effort_mod <- lm(log10(Effort)~log10(Distance)+
+                   Pace+
+                   GAP+
+                   Vert+
+                   Cadence+
+                   Elevation+
+                   Track+
+                   Temp+
+                   StartTime+
+                   ElapsedTime+
+                   DateNew+
+                   restDays2,foo)
+effort_pred <- predict(effort_mod,foo)
+foo$Effort[is.na(foo$Effort)] <- 10^effort_pred[is.na(foo$Effort)]
+summary(effort_mod)
+```
+
+impute maximum heart rate
+```{r}
+MaxHR_mod <- lm(log10(MaxHR)~log10(Distance)+
+                  Pace+
+                  GAP+
+                  Vert+
+                  Cadence+
+                  Elevation+
+                  Track+
+                  Temp+
+                  StartTime+
+                  ElapsedTime+
+                  DateNew+
+                  restDays2,foo)
+MaxHR_pred <- predict(MaxHR_mod,foo)
+foo$MaxHR[is.na(foo$MaxHR)] <- 10^MaxHR_pred[is.na(foo$MaxHR)]
+summary(MaxHR_mod)
+```
+
+impute epoc
+```{r}
+epoc_mod <- lm(log10(EPOC)~log10(Distance)+
+                 Pace+
+                 GAP+
+                 Vert+
+                 Cadence+
+                 Elevation+
+                 Track+
+                 Temp+
+                 StartTime+
+                 ElapsedTime+
+                 DateNew+
+                 restDays2,foo)
+epoc_pred <- predict(epoc_mod,foo)
+foo$EPOC[is.na(foo$EPOC)] <- 10^epoc_pred[is.na(foo$EPOC)]
+summary(epoc_mod)
+```
+
+Create beats per mile and beats per grade adjusted mile stats
+```{r}
+foo$bpgam <- foo$GAP*foo$HR
+foo$bpmile <- foo$Pace*foo$HR
+```
+
+
+impute power
+```{r}
+power_mod <- lm(log10(Power)~log10(Distance)+
+                 Pace+
+                 GAP+
+                 Vert+
+                 Cadence+
+                 Elevation+
+                 Track+
+                 Temp+
+                 StartTime+
+                 ElapsedTime+
+                 HR+
+                 restDays2,foo)
+power_pred <- predict(power_mod,foo)
+foo$Power[is.na(foo$Power)] <- 10^power_pred[is.na(foo$Power)]
+summary(power_mod)
+```
+
+impute AirPower
+```{r}
+airpower_mod <- lm(log10(AirPower+1)~EPOC+
+                 Temp+
+                 Vert+
+                 StartTime+
+                 Cadence,foo)
+airpower_pred <- predict(airpower_mod,foo)
+foo$AirPower[is.na(foo$AirPower)] <- 10^airpower_pred[is.na(foo$AirPower)]-1
+summary(airpower_mod)
+```
+
+impute FormPower
+```{r}
+formpower_mod <- lm(log10(FormPower)~log10(Distance)+
+                 Pace+
+                 GAP+
+                 Cadence+
+                 ElapsedTime+
+                 HR,foo)
+formpower_pred <- predict(formpower_mod,foo)
+foo$FormPower[is.na(foo$FormPower)] <- 10^formpower_pred[is.na(foo$FormPower)]
+summary(formpower_mod)
+```
+
+
+impute GroundTime
+```{r}
+groundtime_mod <- lm(log10(GroundTime)~log10(Distance)+
+                 GAP+
+                 Cadence+
+                 Track+
+                 Temp+
+                 ElapsedTime+
+                 HR,foo)
+groundtime_pred <- predict(groundtime_mod,foo)
+foo$GroundTime[is.na(foo$GroundTime)] <- 10^groundtime_pred[is.na(foo$GroundTime)]
+summary(groundtime_mod)
+```
+
+impute LSS
+```{r}
+lss_mod <- lm(log10(LSS)~GAP+
+                 Vert+
+                 Cadence+
+                 StartTime+
+                 restDays2+
+                 EPOC,foo)
+lss_pred <- predict(lss_mod,foo)
+foo$LSS[is.na(foo$LSS)] <- 10^lss_pred[is.na(foo$LSS)]
+summary(lss_mod)
+```
+
+
+impute VertOsc
+```{r}
+vertosc_mod <- lm(log10(VertOsc)~Pace+
+                 Vert+
+                   GAP+
+                 log10(Effort)+
+                 Elevation+
+                 ElapsedTime+
+                 EPOC+
+                 restDays2,foo)
+vertosc_pred <- predict(vertosc_mod,foo)
+foo$VertOsc[is.na(foo$VertOsc)] <- 10^vertosc_pred[is.na(foo$VertOsc)]
+summary(vertosc_mod)
+```
+
+
+impute Recovery Points
+```{r}
+rp_mod <- lm((RecoveryPoints)~Cadence+
+                 Elevation+
+                 MaxHR+
+                 GroundTime+
+                 AirPower+
+                 Pace+
+                 Effort+
+                 HR+
+                 DateNew,foo)
+rp_pred <- predict(rp_mod,foo)
+foo$RecoveryPoints[is.na(foo$RecoveryPoints)] <- rp_pred[is.na(foo$RecoveryPoints)]
+summary(rp_mod)
+```
+
+[1] "Date"           "Distance"       "HR"             "Pace"          
+ [5] "GAP"            "Vert"           "Effort"         "Cadence"       
+ [9] "Elevation"      "Track"          "Temp"           "MaxHR"         
+[13] "StartTime"      "ElapsedTime"    "Power"          "FormPower"     
+[17] "GroundTime"     "LSS"            "VertOsc"        "AirPower"      
+[21] "AirTemp"        "Humidity"       "WindSpeed"      "WindDirection" 
+[25] "weather"        "Poles"          "EPOC"           "Watch"         
+[29] "RecoveryPoints" "DateNew"        "restDays"       "restDays2"     
+[33] "bpgam"          "bpmile"
+
+
+
+
+
+```{r}
+whiteList<-apply(is.na(foo),2,sum)
+whiteList['Date']<-1
+whiteList['Watch']<-1
+keepCols <- names(whiteList[whiteList==0])
+predMat <- foo[,keepCols]
+predMat$Track <- as.numeric(predMat$Track)
+predMat$Poles <- as.numeric(predMat$Poles)
+```
+
+Power
+```{r}
+set.seed(1)
+lambda <- seq(-8,1,length.out=100)
+y<-log10(foo$Power)
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+#y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+wposvar <- apply(dM1,2,sd)>0
+dM1<-dM1[,wposvar]
+dM2 <- model.matrix(~ .^2,predMat)
+dM2 <- data.matrix(dM2)
+dM2 <- dM2[,wposvar]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y,lambda = exp(lambda))
+res2 <- glmnet::cv.glmnet(x=dM1,y=y,lambda=exp(lambda))
+power_pred1 <- predict(res1,data.matrix(predMat))
+power_pred2 <- predict(res2,dM2)
+foo$Power[is.na(foo$Power)] <- 10^power_pred2[is.na(foo$Power)]
+```
+
+AirPower
+```{r}
+set.seed(1)
+lambda <- seq(-8,-4,length.out=100)
+y<-(foo$AirPower)
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+#y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+wposvar <- apply(dM1,2,sd)>0
+dM1<-dM1[,wposvar]
+dM2 <- model.matrix(~ .^2,predMat)
+dM2 <- data.matrix(dM2)
+dM2 <- dM2[,wposvar]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y,lambda = exp(lambda))
+res2 <- glmnet::cv.glmnet(x=dM1,y=y,lambda=exp(lambda))
+power_pred1 <- predict(res1,data.matrix(predMat))
+power_pred2 <- predict(res2,dM2)
+foo$AirPower[is.na(foo$AirPower)] <- power_pred1[is.na(foo$AirPower)]
+```
+
+FormPower
+```{r}
+y<-foo$FormPower
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y)
+res2 <- glmnet::cv.glmnet(x=dM1,y=y)
+```
+
+GroundTime
+```{r}
+y<-foo$GroundTime
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y)
+res2 <- glmnet::cv.glmnet(x=dM1,y=y)
+```
+
+LSS
+```{r}
+y<-foo$LSS
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y)
+res2 <- glmnet::cv.glmnet(x=dM1,y=y)
+```
+
+VertOsc
+```{r}
+set.seed(1)
+y<-foo$VertOsc
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y)
+res2 <- glmnet::cv.glmnet(x=dM1,y=y)
+```
+
+RecoveryPoints
+```{r}
+set.seed(1)
+y<-foo$RecoveryPoints
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y)
+res2 <- glmnet::cv.glmnet(x=dM1,y=y)
+```
+
+AirTemp
+```{r}
+set.seed(1)
+y<-foo$AirTemp
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y)
+res2 <- glmnet::cv.glmnet(x=dM1,y=y)
+```
+
+Humidity
+```{r}
+set.seed(1)
+y<-foo$Humidity
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y)
+res2 <- glmnet::cv.glmnet(x=dM1,y=y)
+```
+
+WindSpeed
+```{r}
+set.seed(1)
+y<-foo$WindSpeed
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y)
+res2 <- glmnet::cv.glmnet(x=dM1,y=y)
+```
+
+
+weather
+```{r}
+set.seed(1)
+y<-as.factor(foo$weather)
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+#y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y,family='multinomial')
+#res2 <- glmnet::cv.glmnet(x=dM1,y=y,family='multinomial')
+```
+WindDirection
+```{r}
+set.seed(1)
+y<-as.factor(foo$WindDirection)
+wkeep <- which(!is.na(y))
+y<-y[wkeep]
+#y <- scale(y)
+x<-data.matrix(predMat)[wkeep,]
+dM1 <- model.matrix(~ .^2,predMat[wkeep,])
+dM1 <- data.matrix(dM1)
+dM1<-dM1[,apply(dM1,2,sd)>0]
+#x2 <- model.matrix()
+res1 <- glmnet::cv.glmnet(x=x,y=y,family='multinomial')
+#res2 <- glmnet::cv.glmnet(x=dM1,y=y,family='multinomial')
 ```
 
 
